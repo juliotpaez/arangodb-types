@@ -170,12 +170,12 @@ pub fn process_enum_literal<T: Copy>(
             if let Some(default) = default {
                 Ok(default)
             } else {
-                return Err(Error::CompulsoryAttributeArguments(format!(
+                Err(Error::CompulsoryAttributeArguments(format!(
                     "The \"{}\" attribute require one of the following arguments: \"{}\"",
                     attribute_name,
                     string_values.join("\", \"")
                 ))
-                .with_tokens(&meta));
+                .with_tokens(&meta))
             }
         }
     }
@@ -196,13 +196,11 @@ pub fn process_only_attribute(
                 #[#attribute]
             })
         }
-        _ => {
-            return Err(Error::CompulsoryAttributeArguments(format!(
-                "The \"{}\" attribute require a list of arguments, e.g: {}(...)",
-                attribute_name, attribute_name,
-            ))
-            .with_tokens(&meta));
-        }
+        _ => Err(Error::CompulsoryAttributeArguments(format!(
+            "The \"{}\" attribute require a list of arguments, e.g: {}(...)",
+            attribute_name, attribute_name,
+        ))
+        .with_tokens(&meta)),
     }
 }
 

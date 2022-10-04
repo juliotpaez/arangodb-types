@@ -1,3 +1,4 @@
+use arangors::ClientError;
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -318,9 +319,9 @@ pub trait DBDocument:
     /// Removes the element returning the old value.
     async fn remove(
         &self,
-        rev: Option<ArcStr>,
+        error_if_not_found: bool,
         collection: &Self::Collection,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Option<Self>, anyhow::Error> {
         let db_collection = collection.db_collection().await?;
 
         let key = self
@@ -334,7 +335,6 @@ pub trait DBDocument:
             })
             .to_string();
         let key = urlencoding::encode(key.as_str());
-        let rev = rev.map(|v| v.to_string());
 
         loop {
             let response = db_collection
@@ -344,16 +344,24 @@ pub trait DBDocument:
                         .return_old(true)
                         .silent(false)
                         .build(),
-                    rev.clone(),
+                    None,
                 )
                 .await;
 
             match response {
                 Ok(v) => match v {
                     DocumentResponse::Silent => unreachable!("This remove is not silent"),
-                    DocumentResponse::Response { old, .. } => return Ok(old.unwrap()),
+                    DocumentResponse::Response { old, .. } => return Ok(Some(old.unwrap())),
                 },
                 Err(e) => {
+                    if !error_if_not_found {
+                        if let ClientError::Arango(e) = &e {
+                            if e.error_num() == 1202 {
+                                return Ok(None);
+                            }
+                        }
+                    }
+
                     check_client_is_write_conflict(e)?;
                 }
             }
@@ -363,7 +371,7 @@ pub trait DBDocument:
     /// Removes the element ignoring the result.
     async fn remove_and_ignore(
         &self,
-        rev: Option<ArcStr>,
+        error_if_not_found: bool,
         collection: &Self::Collection,
     ) -> Result<(), anyhow::Error> {
         let db_collection = collection.db_collection().await?;
@@ -379,7 +387,6 @@ pub trait DBDocument:
             })
             .to_string();
         let key = urlencoding::encode(key.as_str());
-        let rev = rev.map(|v| v.to_string());
 
         loop {
             let response = db_collection
@@ -389,13 +396,21 @@ pub trait DBDocument:
                         .return_old(false)
                         .silent(true)
                         .build(),
-                    rev.clone(),
+                    None,
                 )
                 .await;
 
             match response {
                 Ok(_) => return Ok(()),
                 Err(e) => {
+                    if !error_if_not_found {
+                        if let ClientError::Arango(e) = &e {
+                            if e.error_num() == 1202 {
+                                return Ok(());
+                            }
+                        }
+                    }
+
                     check_client_is_write_conflict(e)?;
                 }
             }
