@@ -1,7 +1,7 @@
 use std::fmt;
 use std::ops::Deref;
 
-use chrono::{TimeZone, Timelike, Utc};
+use chrono::{NaiveDateTime, Timelike};
 use serde::de::Visitor;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
@@ -9,7 +9,7 @@ use crate::types::dates::DBDateTime;
 
 /// A datetime stored in DB as a UNIX seconds timestamp.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct DBExpiration(pub chrono::DateTime<Utc>);
+pub struct DBExpiration(pub NaiveDateTime);
 
 impl DBExpiration {
     // GETTERS ----------------------------------------------------------------
@@ -47,14 +47,17 @@ impl<'de> Deserialize<'de> for DBExpiration {
             where
                 E: de::Error,
             {
-                Ok(DBDateTime::new(Utc::timestamp(&Utc, value, 0)).into())
+                Ok(DBDateTime::new(NaiveDateTime::from_timestamp_opt(value, 0).unwrap()).into())
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                Ok(DBDateTime::new(Utc::timestamp(&Utc, value as i64, 0)).into())
+                Ok(
+                    DBDateTime::new(NaiveDateTime::from_timestamp_opt(value as i64, 0).unwrap())
+                        .into(),
+                )
             }
         }
 
@@ -63,7 +66,7 @@ impl<'de> Deserialize<'de> for DBExpiration {
 }
 
 impl Deref for DBExpiration {
-    type Target = chrono::DateTime<Utc>;
+    type Target = NaiveDateTime;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -72,7 +75,7 @@ impl Deref for DBExpiration {
 
 impl From<DBDateTime> for DBExpiration {
     fn from(v: DBDateTime) -> Self {
-        DBExpiration(v.0.date().and_hms(v.0.hour(), v.0.minute(), v.0.second()))
+        DBExpiration(v.with_nanosecond(0).unwrap())
     }
 }
 

@@ -45,10 +45,10 @@ impl FieldAttributes {
         // Read every attribute, i.e. #[...]
         for attribute in attributes {
             // Transform the attribute as meta, i.e. removing the brackets.
-            let meta = attribute.parse_meta()?;
+            let meta = &attribute.meta;
 
             // Get the name.
-            let name = match get_simple_name_from_meta(&meta) {
+            let name = match get_simple_name_from_meta(meta) {
                 Some(v) => v,
                 None => {
                     result.attributes.push(attribute.to_token_stream());
@@ -59,11 +59,11 @@ impl FieldAttributes {
 
             match name {
                 DB_NAME_ATTRIBUTE => {
-                    result.db_name = Some(process_string_literal(&meta, name, None)?);
+                    result.db_name = Some(process_string_literal(meta, name, None)?);
                 }
                 INNER_MODEL_ATTRIBUTE => {
                     result.inner_model = process_enum_literal(
-                        &meta,
+                        meta,
                         INNER_MODEL_ATTRIBUTE_NAMES,
                         INNER_MODEL_ATTRIBUTE_VALUES,
                         name,
@@ -73,7 +73,7 @@ impl FieldAttributes {
                 _ => {
                     if name.ends_with(ATTR_ATTRIBUTE_SUFFIX) {
                         let final_name = name.trim_end_matches(ATTR_ATTRIBUTE_SUFFIX);
-                        let value = process_only_attribute(&meta, name)?;
+                        let value = process_only_attribute(meta, name)?;
 
                         match result.attributes_by_model.get_mut(final_name) {
                             Some(v) => {
@@ -96,7 +96,7 @@ impl FieldAttributes {
 
                     if name.starts_with(INNER_TYPE_ATTRIBUTE_PREFIX) {
                         let final_name = name.trim_start_matches(INNER_TYPE_ATTRIBUTE_PREFIX);
-                        let value = process_string_literal(&meta, name, None)?;
+                        let value = process_string_literal(meta, name, None)?;
                         let value = syn::parse_str(&value)?;
 
                         result

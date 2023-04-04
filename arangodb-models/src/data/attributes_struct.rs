@@ -24,10 +24,10 @@ impl StructAttributes {
         // Read every attribute, i.e. #[...]
         for attribute in attributes {
             // Transform the attribute as meta, i.e. removing the brackets.
-            let meta = attribute.parse_meta()?;
+            let meta = &attribute.meta;
 
             // Get the name.
-            let name = match get_simple_name_from_meta(&meta) {
+            let name = match get_simple_name_from_meta(meta) {
                 Some(v) => v,
                 None => {
                     result.attributes.push(attribute.to_token_stream());
@@ -38,12 +38,12 @@ impl StructAttributes {
 
             match name {
                 SKIP_DEFAULT_ATTRIBUTE => {
-                    result.skip_default = process_bool_literal(&meta, name, Some(true))?;
+                    result.skip_default = process_bool_literal(meta, name, Some(true))?;
                 }
                 _ => {
                     if name.ends_with(ATTR_ATTRIBUTE_SUFFIX) {
                         let final_name = name.trim_end_matches(ATTR_ATTRIBUTE_SUFFIX);
-                        let value = process_only_attribute(&meta, name)?;
+                        let value = process_only_attribute(meta, name)?;
 
                         match result.attributes_by_model.get_mut(final_name) {
                             Some(v) => {

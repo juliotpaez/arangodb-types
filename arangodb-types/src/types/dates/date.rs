@@ -1,33 +1,33 @@
 use std::fmt;
 use std::ops::Deref;
 
-use chrono::{Datelike, TimeZone, Utc};
+use chrono::{Datelike, NaiveDate, TimeZone, Utc};
 use serde::de::Visitor;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::types::dates::DBDateTime;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct DBDate(pub chrono::Date<Utc>);
+pub struct DBDate(pub NaiveDate);
 
 impl DBDate {
     // CONSTRUCTORS -----------------------------------------------------------
 
-    pub fn new(date: chrono::Date<Utc>) -> Self {
+    pub fn new(date: NaiveDate) -> Self {
         Self(date)
     }
 
     pub fn today() -> Self {
-        Self(Utc::today())
+        Self(Utc::now().date_naive())
     }
 
     pub fn current_month() -> Self {
         let today = Self::today();
-        Self(Utc.ymd(today.year(), today.month(), 1))
+        Self(today.0.with_day(0).unwrap())
     }
 
     pub fn zero_month() -> Self {
-        Self(Utc.ymd(0, 1, 1))
+        Self(Utc.with_ymd_and_hms(0, 1, 1, 0, 0, 0).unwrap().date_naive())
     }
 
     // GETTERS ----------------------------------------------------------------
@@ -47,7 +47,18 @@ impl DBDate {
     // METHODS ----------------------------------------------------------------
 
     pub fn before_years(&self, years: u32) -> DBDate {
-        DBDate(Utc.ymd(self.0.year() - years as i32, self.0.month(), self.0.day()))
+        DBDate(
+            Utc.with_ymd_and_hms(
+                self.0.year() - years as i32,
+                self.0.month(),
+                self.0.day(),
+                0,
+                0,
+                0,
+            )
+            .unwrap()
+            .date_naive(),
+        )
     }
 
     pub fn after_days(&self, duration: u64) -> DBDate {
@@ -62,7 +73,11 @@ impl DBDate {
         let year = final_months / 12;
         let month = final_months % 12;
 
-        DBDate(Utc.ymd(year, month as u32 + 1, self.0.day()))
+        DBDate(
+            Utc.with_ymd_and_hms(year, month as u32 + 1, self.0.day(), 0, 0, 0)
+                .unwrap()
+                .date_naive(),
+        )
     }
 
     pub fn before_months(&self, months: u32) -> DBDate {
@@ -73,11 +88,15 @@ impl DBDate {
         let year = final_months / 12;
         let month = final_months % 12;
 
-        DBDate(Utc.ymd(year, month as u32 + 1, self.0.day()))
+        DBDate(
+            Utc.with_ymd_and_hms(year, month as u32 + 1, self.0.day(), 0, 0, 0)
+                .unwrap()
+                .date_naive(),
+        )
     }
 
     pub fn to_date_time(&self) -> DBDateTime {
-        DBDateTime::new(self.0.and_hms(0, 0, 0))
+        DBDateTime::new(self.0.and_hms_opt(0, 0, 0).unwrap())
     }
 }
 
@@ -107,20 +126,18 @@ impl<'de> Deserialize<'de> for DBDate {
             where
                 E: de::Error,
             {
-                Ok(DBDate(chrono::Date::from_utc(
-                    chrono::NaiveDate::from_num_days_from_ce(value as i32),
-                    Utc,
-                )))
+                Ok(DBDate(
+                    NaiveDate::from_num_days_from_ce_opt(value as i32).unwrap(),
+                ))
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                Ok(DBDate(chrono::Date::from_utc(
-                    chrono::NaiveDate::from_num_days_from_ce(value as i32),
-                    Utc,
-                )))
+                Ok(DBDate(
+                    NaiveDate::from_num_days_from_ce_opt(value as i32).unwrap(),
+                ))
             }
         }
 
@@ -129,15 +146,15 @@ impl<'de> Deserialize<'de> for DBDate {
 }
 
 impl Deref for DBDate {
-    type Target = chrono::Date<Utc>;
+    type Target = NaiveDate;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<chrono::Date<Utc>> for DBDate {
-    fn from(v: chrono::Date<Utc>) -> Self {
+impl From<NaiveDate> for DBDate {
+    fn from(v: NaiveDate) -> Self {
         DBDate(v)
     }
 }
@@ -158,7 +175,11 @@ mod test {
 
     #[test]
     fn test_date() {
-        let date = DBDate(Utc.ymd(1970, 12, 7));
+        let date = DBDate(
+            Utc.with_ymd_and_hms(1970, 12, 7, 0, 0, 0)
+                .unwrap()
+                .date_naive(),
+        );
         let str_date = serde_json::to_string(&date).unwrap();
 
         assert_eq!("719503", str_date);
@@ -167,13 +188,21 @@ mod test {
 
     #[test]
     fn date_after_months() {
-        let original_date = DBDate(Utc.ymd(2021, 12, 1));
+        let original_date = DBDate(
+            Utc.with_ymd_and_hms(2021, 12, 1, 0, 0, 0)
+                .unwrap()
+                .date_naive(),
+        );
         let final_date = original_date.after_months(1);
 
         assert_eq!(final_date.0.year(), 2022, "The year is incorrect");
         assert_eq!(final_date.0.month(), 1, "The month is incorrect");
 
-        let original_date = DBDate(Utc.ymd(2021, 5, 1));
+        let original_date = DBDate(
+            Utc.with_ymd_and_hms(2021, 5, 1, 0, 0, 0)
+                .unwrap()
+                .date_naive(),
+        );
         let final_date = original_date.after_months(20);
 
         assert_eq!(final_date.0.year(), 2023, "The year is incorrect");
@@ -182,13 +211,21 @@ mod test {
 
     #[test]
     fn date_before_months() {
-        let original_date = DBDate(Utc.ymd(2021, 1, 1));
+        let original_date = DBDate(
+            Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 0)
+                .unwrap()
+                .date_naive(),
+        );
         let final_date = original_date.before_months(1);
 
         assert_eq!(final_date.0.year(), 2020, "The year is incorrect");
         assert_eq!(final_date.0.month(), 12, "The month is incorrect");
 
-        let original_date = DBDate(Utc.ymd(2021, 5, 1));
+        let original_date = DBDate(
+            Utc.with_ymd_and_hms(2021, 5, 1, 0, 0, 0)
+                .unwrap()
+                .date_naive(),
+        );
         let final_date = original_date.before_months(20);
 
         assert_eq!(final_date.0.year(), 2019, "The year is incorrect");

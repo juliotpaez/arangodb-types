@@ -35,7 +35,7 @@ impl<'de> Deserialize<'de> for DBDayTime {
                 E: de::Error,
             {
                 Ok(DBDayTime(
-                    chrono::NaiveTime::from_num_seconds_from_midnight(value as u32, 0),
+                    chrono::NaiveTime::from_num_seconds_from_midnight_opt(value as u32, 0).unwrap(),
                 ))
             }
 
@@ -44,7 +44,7 @@ impl<'de> Deserialize<'de> for DBDayTime {
                 E: de::Error,
             {
                 Ok(DBDayTime(
-                    chrono::NaiveTime::from_num_seconds_from_midnight(value as u32, 0),
+                    chrono::NaiveTime::from_num_seconds_from_midnight_opt(value as u32, 0).unwrap(),
                 ))
             }
         }
@@ -69,7 +69,7 @@ impl From<chrono::NaiveTime> for DBDayTime {
 
 impl Default for DBDayTime {
     fn default() -> Self {
-        Self(chrono::NaiveTime::from_hms(0, 0, 0))
+        Self(chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap())
     }
 }
 
@@ -83,7 +83,7 @@ mod test {
 
     #[test]
     fn test_day_time() {
-        let day_time = DBDayTime(chrono::NaiveTime::from_hms(2, 23, 55));
+        let day_time = DBDayTime(chrono::NaiveTime::from_hms_opt(2, 23, 55).unwrap());
         let str_day_time = serde_json::to_string(&day_time).unwrap();
 
         assert_eq!("8635", str_day_time);

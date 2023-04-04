@@ -1,42 +1,44 @@
 use std::fmt;
 use std::ops::Deref;
 
-use chrono::{DateTime, Datelike, LocalResult, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, LocalResult, NaiveDateTime, TimeZone, Timelike, Utc};
 use serde::de::Visitor;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 /// A datetime stored in DB as a UNIX milliseconds timestamp.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct DBDateTime(pub chrono::DateTime<Utc>);
+pub struct DBDateTime(pub NaiveDateTime);
 
 impl DBDateTime {
     // CONSTRUCTORS -----------------------------------------------------------
 
-    pub fn new(date: chrono::DateTime<Utc>) -> Self {
-        DBDateTime(date.date().and_hms_milli(
-            date.hour(),
-            date.minute(),
-            date.second(),
-            date.timestamp_subsec_millis(),
-        ))
+    pub fn new(date: NaiveDateTime) -> Self {
+        DBDateTime(
+            date.with_nanosecond(date.nanosecond() / 1_000_000 * 1_000_000)
+                .unwrap(),
+        )
     }
 
     pub fn now() -> Self {
-        Self::new(Utc::now())
+        Self::new(Utc::now().naive_utc())
     }
 
     pub fn current_minute() -> Self {
         let now = Utc::now();
-        DBDateTime(now.date().and_hms(now.hour(), now.minute(), 0))
+        DBDateTime(
+            now.date_naive()
+                .and_hms_opt(now.hour(), now.minute(), 0)
+                .unwrap(),
+        )
     }
 
     pub fn current_hour() -> Self {
         let now = Utc::now();
-        DBDateTime(now.date().and_hms(now.hour(), 0, 0))
+        DBDateTime(now.date_naive().and_hms_opt(now.hour(), 0, 0).unwrap())
     }
 
     pub fn max_datetime() -> Self {
-        Self::new(DateTime::<Utc>::MAX_UTC)
+        Self::new(DateTime::<Utc>::MAX_UTC.naive_utc())
     }
 
     // GETTERS ----------------------------------------------------------------
@@ -97,15 +99,18 @@ impl DBDateTime {
         let month = final_months % 12;
 
         match Utc
-            .ymd_opt(year as i32, month as u32 + 1, self.0.day())
+            .with_ymd_and_hms(
+                year as i32,
+                month as u32 + 1,
+                self.0.day(),
+                self.0.hour(),
+                self.0.minute(),
+                self.0.second(),
+            )
             .map(|v| {
-                v.and_hms_milli_opt(
-                    self.0.hour(),
-                    self.0.minute(),
-                    self.0.second(),
-                    self.0.timestamp_subsec_millis(),
-                )
-                .map(DBDateTime)
+                v.with_nanosecond(self.0.nanosecond())
+                    .map(|v| v.naive_utc())
+                    .map(DBDateTime)
             }) {
             LocalResult::Single(v) => v,
             _ => None,
@@ -120,15 +125,20 @@ impl DBDateTime {
             None => return None,
         };
 
-        match Utc.ymd_opt(years, self.0.month(), self.0.day()).map(|v| {
-            v.and_hms_milli_opt(
+        match Utc
+            .with_ymd_and_hms(
+                years,
+                self.0.month(),
+                self.0.day(),
                 self.0.hour(),
                 self.0.minute(),
                 self.0.second(),
-                self.0.timestamp_subsec_millis(),
             )
-            .map(DBDateTime)
-        }) {
+            .map(|v| {
+                v.with_nanosecond(self.0.nanosecond())
+                    .map(|v| v.naive_utc())
+                    .map(DBDateTime)
+            }) {
             LocalResult::Single(v) => v,
             _ => None,
         }
@@ -143,12 +153,19 @@ impl DBDateTime {
         let year = final_months / 12;
         let month = final_months % 12;
 
-        DBDateTime(Utc.ymd(year, month as u32 + 1, self.0.day()).and_hms_milli(
-            self.0.hour(),
-            self.0.minute(),
-            self.0.second(),
-            self.0.timestamp_subsec_millis(),
-        ))
+        let result = Utc
+            .with_ymd_and_hms(
+                year,
+                month as u32 + 1,
+                self.0.day(),
+                self.0.hour(),
+                self.0.minute(),
+                self.0.second(),
+            )
+            .unwrap();
+        result.with_nanosecond(self.0.nanosecond()).unwrap();
+
+        DBDateTime(result.naive_utc())
     }
 
     pub fn min(self, other: DBDateTime) -> DBDateTime {
@@ -186,14 +203,18 @@ impl<'de> Deserialize<'de> for DBDateTime {
             where
                 E: de::Error,
             {
-                Ok(DBDateTime::new(Utc::timestamp_millis(&Utc, value)))
+                Ok(DBDateTime::new(
+                    Utc.timestamp_millis_opt(value).unwrap().naive_utc(),
+                ))
             }
 
             fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
             where
                 E: de::Error,
             {
-                Ok(DBDateTime::new(Utc::timestamp_millis(&Utc, value as i64)))
+                Ok(DBDateTime::new(
+                    Utc.timestamp_millis_opt(value as i64).unwrap().naive_utc(),
+                ))
             }
         }
 
@@ -202,15 +223,15 @@ impl<'de> Deserialize<'de> for DBDateTime {
 }
 
 impl Deref for DBDateTime {
-    type Target = chrono::DateTime<Utc>;
+    type Target = NaiveDateTime;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<chrono::DateTime<Utc>> for DBDateTime {
-    fn from(v: chrono::DateTime<Utc>) -> Self {
+impl From<NaiveDateTime> for DBDateTime {
+    fn from(v: NaiveDateTime) -> Self {
         DBDateTime::new(v)
     }
 }
@@ -231,7 +252,13 @@ mod test {
 
     #[test]
     fn test_datetime() {
-        let date = DBDateTime(Utc.ymd(1970, 12, 7).and_hms_milli(5, 23, 30, 500));
+        let date = DBDateTime(
+            Utc.with_ymd_and_hms(1970, 12, 7, 5, 23, 30)
+                .unwrap()
+                .with_nanosecond(500_000_000)
+                .unwrap()
+                .naive_utc(),
+        );
         let str_date = serde_json::to_string(&date).unwrap();
 
         assert_eq!("29395410500", str_date);
@@ -240,13 +267,21 @@ mod test {
 
     #[test]
     fn test_datetime_after_months() {
-        let original_date = DBDateTime(Utc.ymd(2021, 12, 1).and_hms(0, 0, 0));
+        let original_date = DBDateTime(
+            Utc.with_ymd_and_hms(2021, 12, 1, 0, 0, 0)
+                .unwrap()
+                .naive_utc(),
+        );
         let final_date = original_date.after_months_checked(1).unwrap();
 
         assert_eq!(final_date.0.year(), 2022, "The year is incorrect");
         assert_eq!(final_date.0.month(), 1, "The month is incorrect");
 
-        let original_date = DBDateTime(Utc.ymd(2021, 5, 1).and_hms(0, 0, 0));
+        let original_date = DBDateTime(
+            Utc.with_ymd_and_hms(2021, 5, 1, 0, 0, 0)
+                .unwrap()
+                .naive_utc(),
+        );
         let final_date = original_date.after_months_checked(20).unwrap();
 
         assert_eq!(final_date.0.year(), 2023, "The year is incorrect");
@@ -255,13 +290,21 @@ mod test {
 
     #[test]
     fn test_datetime_before_months() {
-        let original_date = DBDateTime(Utc.ymd(2021, 1, 1).and_hms(0, 0, 0));
+        let original_date = DBDateTime(
+            Utc.with_ymd_and_hms(2021, 1, 1, 0, 0, 0)
+                .unwrap()
+                .naive_utc(),
+        );
         let final_date = original_date.before_months(1);
 
         assert_eq!(final_date.0.year(), 2020, "The year is incorrect");
         assert_eq!(final_date.0.month(), 12, "The month is incorrect");
 
-        let original_date = DBDateTime(Utc.ymd(2021, 5, 1).and_hms(0, 0, 0));
+        let original_date = DBDateTime(
+            Utc.with_ymd_and_hms(2021, 5, 1, 0, 0, 0)
+                .unwrap()
+                .naive_utc(),
+        );
         let final_date = original_date.before_months(20);
 
         assert_eq!(final_date.0.year(), 2019, "The year is incorrect");

@@ -43,10 +43,10 @@ impl ModelOptions {
         // Read every attribute, i.e. #[...]
         for attribute in attributes {
             // Transform the attribute as meta, i.e. removing the brackets.
-            let meta = attribute.parse_meta()?;
+            let meta = &attribute.meta;
 
             // Get the name.
-            let name = match get_simple_name_from_meta(&meta) {
+            let name = match get_simple_name_from_meta(meta) {
                 Some(v) => v,
                 None => return Err(Error::UnexpectedMacroOption.with_tokens(attribute)),
             };
@@ -54,13 +54,13 @@ impl ModelOptions {
 
             match name {
                 RELATIVE_IMPORTS_ATTRIBUTE => {
-                    result.relative_imports = process_bool_literal(&meta, name, Some(true))?;
+                    result.relative_imports = process_bool_literal(meta, name, Some(true))?;
                 }
                 SKIP_IMPL_ATTRIBUTE => {
-                    result.skip_impl = process_bool_literal(&meta, name, Some(true))?;
+                    result.skip_impl = process_bool_literal(meta, name, Some(true))?;
                 }
                 SKIP_FIELDS_ATTRIBUTE => {
-                    result.skip_fields = process_bool_literal(&meta, name, Some(true))?;
+                    result.skip_fields = process_bool_literal(meta, name, Some(true))?;
                 }
                 SYNC_LEVEL_ATTRIBUTE => {
                     static ENUM_LIST_VALUES: &[SyncLevelType] = &[
@@ -70,7 +70,7 @@ impl ModelOptions {
                     ];
 
                     result.sync_level = process_enum_literal(
-                        &meta,
+                        meta,
                         SYNC_LEVEL_ATTRIBUTE_NAMES,
                         ENUM_LIST_VALUES,
                         name,
@@ -78,19 +78,19 @@ impl ModelOptions {
                     )?;
                 }
                 SYNC_COLLECTION_KEY_METHOD_ATTRIBUTE => {
-                    let value = process_string_literal(&meta, name, None)?;
+                    let value = process_string_literal(meta, name, None)?;
                     result.sync_collection_key_method = Some(format_ident!("{}", value));
                 }
                 COLLECTION_NAME_ATTRIBUTE => {
-                    let value = process_string_literal(&meta, name, None)?;
+                    let value = process_string_literal(meta, name, None)?;
                     result.collection_name = Some(format_ident!("{}", value));
                 }
                 COLLECTION_TYPE_ATTRIBUTE => {
-                    let value = process_string_literal(&meta, name, None)?;
+                    let value = process_string_literal(meta, name, None)?;
                     result.collection_type = Some(format_ident!("{}", value));
                 }
                 COLLECTION_KIND_ATTRIBUTE => {
-                    let value = process_string_literal(&meta, name, None)?;
+                    let value = process_string_literal(meta, name, None)?;
                     result.collection_kind = Some(format_ident!("{}", value));
                 }
                 _ => {
