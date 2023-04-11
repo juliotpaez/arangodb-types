@@ -5,21 +5,21 @@ use arangors::{AqlOptions, AqlQuery};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::aql::{AqlBuilder, AqlInsert};
-use crate::aql::AQL_DOCUMENT_ID;
-use crate::aql::AQL_NEW_ID;
 use crate::aql::AqlLet;
 use crate::aql::AqlLetKind;
 use crate::aql::AqlLimit;
 use crate::aql::AqlResult;
 use crate::aql::AqlReturn;
 use crate::aql::AqlUpdate;
+use crate::aql::AQL_DOCUMENT_ID;
+use crate::aql::AQL_NEW_ID;
+use crate::aql::{AqlBuilder, AqlInsert, AqlRemove};
 use crate::documents::DBDocumentField;
-use crate::traits::DBDocument;
 use crate::traits::utils::check_client_is_write_conflict;
+use crate::traits::DBDocument;
 use crate::types::Collection;
-use crate::types::Database;
 use crate::types::DBInfo;
+use crate::types::Database;
 
 #[async_trait]
 pub trait DBCollection: Send + Sync {
@@ -231,7 +231,6 @@ pub trait DBCollection: Send + Sync {
         // FOR i IN <documents>
         //      UPDATE i WITH i IN <collection> OPTIONS { ignoreErrors: true }
         //      RETURN NEW._key
-        let collection = self;
         let mut aql = AqlBuilder::new_for_in_list(AQL_DOCUMENT_ID, documents);
 
         aql.update_step(
@@ -246,39 +245,58 @@ pub trait DBCollection: Send + Sync {
             .map(|v| v.db_key().clone().unwrap())
             .collect();
 
-        collection
-            .send_generic_aql_with_manual_retries(
-                &mut aql,
-                |aql_result: AqlResult<<<Self as crate::traits::collection::DBCollection>::Document as DBDocument>::Key>, aql| {
-                    for key in aql_result.results {
-                        active_keys.remove(&key);
-                    }
+        self.send_generic_aql_with_manual_retries(
+            &mut aql,
+            |aql_result: AqlResult<
+                <<Self as crate::traits::collection::DBCollection>::Document as DBDocument>::Key,
+            >,
+             aql| {
+                for key in aql_result.results {
+                    active_keys.remove(&key);
+                }
 
-                    if active_keys.is_empty() {
-                        true
-                    } else {
-                        aql.set_list_from_iterator(
-                            documents
-                                .iter()
-                                .filter(|v| active_keys.contains(v.db_key().as_ref().unwrap())),
-                        );
-                        false
-                    }
-                },
-            )
-            .await
+                if active_keys.is_empty() {
+                    true
+                } else {
+                    aql.set_list_from_iterator(
+                        documents
+                            .iter()
+                            .filter(|v| active_keys.contains(v.db_key().as_ref().unwrap())),
+                    );
+                    false
+                }
+            },
+        )
+        .await
     }
 
     /// Insert many documents.
     async fn insert_many(&self, documents: &[Self::Document]) -> Result<(), anyhow::Error> {
         // FOR i IN <documents>
         //      INSERT i INTO <collection>
-        let collection = self;
         let mut aql = AqlBuilder::new_for_in_list(AQL_DOCUMENT_ID, documents);
 
         aql.insert_step(AqlInsert::new_document(Self::name()));
 
-        collection.send_aql(&aql).await?;
+        self.send_aql(&aql).await?;
+
+        Ok(())
+    }
+
+    /// Remove many documents.
+    async fn remove_many<
+        I: Iterator<Item = <<Self as DBCollection>::Document as DBDocument>::Key> + std::marker::Send,
+    >(
+        &self,
+        iterator: I,
+    ) -> Result<(), anyhow::Error> {
+        // FOR i IN <documents>
+        //      REMOVE i FROM <collection>
+        let mut aql = AqlBuilder::new_for_in_iterator(AQL_DOCUMENT_ID, iterator);
+
+        aql.remove_step(AqlRemove::new_document(Self::name()));
+
+        self.send_aql(&aql).await?;
 
         Ok(())
     }
